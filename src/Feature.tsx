@@ -8,12 +8,12 @@ import {
   useNamedPeer,
   usePerPeerValue,
   usePhase,
+  useTeams,
   type MeshConfig,
   type YRoom,
 } from "@baditaflorin/mesh-common";
 
 type Props = { room: YRoom | null; config: MeshConfig };
-type Team = "red" | "blue" | null;
 type Tap = { count: number; ts: number };
 
 const ROUND_MS = 30_000;
@@ -32,7 +32,7 @@ export function Feature({ room, config }: Props) {
 
 function Body({ room, config }: { room: YRoom; config: MeshConfig }) {
   const { name, setName, nameOf } = useNamedPeer(config, room);
-  const teams = usePerPeerValue<Team>(room, "teams", null);
+  const teams = useTeams(room, { teams: ["red", "blue"], mode: "manual" });
   const taps = usePerPeerValue<Tap>(room, "taps", { count: 0, ts: 0 });
   const phase = usePhase<"lobby" | "round" | "done">(room, "phase", "lobby");
   const roundMap = useMemo(() => room.doc.getMap<number>("round"), [room]);
@@ -47,7 +47,10 @@ function Body({ room, config }: { room: YRoom; config: MeshConfig }) {
   const roundN = roundMap.get("n") ?? 0;
   const deadline = useDeadline(start ? start + ROUND_MS : null);
   const { burst } = useConfetti();
-  const teamOf = (peerId: string): Team => teams.valueOf(peerId) ?? null;
+  const redMembers = useMemo(() => new Set(teams.membersOf("red")), [teams]);
+  const blueMembers = useMemo(() => new Set(teams.membersOf("blue")), [teams]);
+  const teamOf = (peerId: string): "red" | "blue" | null =>
+    redMembers.has(peerId) ? "red" : blueMembers.has(peerId) ? "blue" : null;
 
   let red = 0;
   let blue = 0;
@@ -73,7 +76,7 @@ function Body({ room, config }: { room: YRoom; config: MeshConfig }) {
 
   const joinTeam = (t: "red" | "blue") => {
     if (phase.phase === "round") return;
-    teams.setMy(t);
+    teams.switchTo(t);
   };
 
   const startRound = () => {
@@ -88,7 +91,7 @@ function Body({ room, config }: { room: YRoom; config: MeshConfig }) {
   };
 
   const tap = () => {
-    if (phase.phase !== "round" || !teams.my) return;
+    if (phase.phase !== "round" || !teams.myTeam) return;
     taps.setMy({ count: (taps.my?.count ?? 0) + 1, ts: Date.now() });
   };
 
@@ -131,7 +134,7 @@ function Body({ room, config }: { room: YRoom; config: MeshConfig }) {
           <button
             key={t}
             type="button"
-            className={`tow-team ${teams.my === t ? "is-mine" : ""}`}
+            className={`tow-team ${teams.myTeam === t ? "is-mine" : ""}`}
             data-team={t}
             onClick={() => joinTeam(t)}
             disabled={!trimmed || phase.phase === "round"}
@@ -165,7 +168,7 @@ function Body({ room, config }: { room: YRoom; config: MeshConfig }) {
         type="button"
         className="tow-tap"
         onClick={tap}
-        disabled={phase.phase !== "round" || !teams.my}
+        disabled={phase.phase !== "round" || !teams.myTeam}
         aria-label="TAP"
       >
         TAP
