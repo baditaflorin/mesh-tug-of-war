@@ -49,3 +49,185 @@ body,
   opacity: 0.6;
   font-variant-numeric: tabular-nums;
 }
+
+/* ============================================================ tug-of-war */
+.tow-screen {
+  max-width: 38rem;
+  margin: 0 auto;
+  padding: 5rem 1rem 6rem;
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+.tow-header {
+  text-align: center;
+}
+.tow-header h1 {
+  margin: 0;
+  font-size: 1.7rem;
+  color: var(--mesh-accent);
+  letter-spacing: 0.02em;
+}
+.tow-status {
+  margin: 0.25rem 0 0;
+  font-size: 0.85rem;
+  opacity: 0.65;
+  font-variant-numeric: tabular-nums;
+}
+.tow-name {
+  width: 100%;
+  padding: 0.7rem 0.9rem;
+  font-size: 1rem;
+  border-radius: 0.6rem;
+  border: 1px solid var(--mesh-border, #333);
+  background: var(--mesh-bg-elev, #1a1a1a);
+  color: inherit;
+}
+.tow-teams {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.6rem;
+}
+.tow-team {
+  padding: 0.9rem;
+  border: 2px solid transparent;
+  border-radius: 0.7rem;
+  font-weight: 700;
+  font-size: 1rem;
+  cursor: pointer;
+  color: white;
+  opacity: 0.85;
+  transition: opacity 180ms ease;
+}
+.tow-team[data-team="red"] {
+  background: linear-gradient(135deg, #ff3a3a, #c01a1a);
+}
+.tow-team[data-team="blue"] {
+  background: linear-gradient(135deg, #3a82ff, #1a3ec0);
+}
+.tow-team[disabled] {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+.tow-team.is-mine {
+  opacity: 1;
+  border-color: var(--mesh-accent, #ff8800);
+  box-shadow: 0 0 0 3px rgba(255, 136, 0, 0.25);
+}
+.tow-rope {
+  position: relative;
+  height: 2.6rem;
+  border-radius: 999px;
+  background: linear-gradient(
+    90deg,
+    rgba(255, 60, 60, 0.35),
+    rgba(120, 120, 120, 0.2) 50%,
+    rgba(60, 120, 255, 0.35)
+  );
+  overflow: visible;
+  transition: opacity 240ms ease;
+}
+.tow-rope.is-flash {
+  opacity: 1 !important;
+}
+.tow-rope-axis {
+  position: absolute;
+  left: 50%;
+  top: -0.4rem;
+  bottom: -0.4rem;
+  width: 2px;
+  background: rgba(255, 255, 255, 0.5);
+}
+.tow-rope-knot {
+  position: absolute;
+  top: 50%;
+  width: 2.2rem;
+  height: 2.2rem;
+  border-radius: 50%;
+  background: var(--mesh-accent, #ff8800);
+  transform: translate(-50%, -50%);
+  box-shadow: 0 0 12px rgba(255, 136, 0, 0.7);
+}
+.tow-totals {
+  display: flex;
+  align-items: baseline;
+  justify-content: center;
+  gap: 1rem;
+  font-variant-numeric: tabular-nums;
+  font-weight: 800;
+  font-size: 1.6rem;
+}
+.tow-red-total {
+  color: #ff5a5a;
+}
+.tow-blue-total {
+  color: #5a8aff;
+}
+.tow-vs {
+  font-size: 0.9rem;
+  opacity: 0.6;
+  font-weight: 500;
+}
+.tow-tap {
+  padding: 1.6rem;
+  font-size: 1.6rem;
+  font-weight: 900;
+  letter-spacing: 0.08em;
+  border-radius: 1rem;
+  border: none;
+  cursor: pointer;
+  background: var(--mesh-accent, #ff8800);
+  color: #111;
+  user-select: none;
+  -webkit-user-select: none;
+  touch-action: manipulation;
+}
+.tow-tap[disabled] {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+.tow-start {
+  padding: 0.9rem;
+  font-size: 1rem;
+  font-weight: 700;
+  border-radius: 0.7rem;
+  border: 1px solid var(--mesh-accent, #ff8800);
+  background: transparent;
+  color: var(--mesh-accent, #ff8800);
+  cursor: pointer;
+}
+.tow-start[disabled] {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+.tow-countdown {
+  position: relative;
+  height: 0.7rem;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.08);
+  overflow: hidden;
+}
+.tow-countdown-bar {
+  position: absolute;
+  inset: 0;
+  background: var(--mesh-accent, #ff8800);
+  transition: width 480ms linear;
+}
+.tow-countdown-label {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.7rem;
+  font-variant-numeric: tabular-nums;
+  color: #111;
+  font-weight: 700;
+}
+.tow-winner {
+  margin: 0;
+  text-align: center;
+  font-size: 1.4rem;
+  font-weight: 800;
+  color: var(--mesh-accent, #ff8800);
+}
