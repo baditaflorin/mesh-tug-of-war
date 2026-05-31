@@ -1,7 +1,7 @@
 # mesh-tug-of-war
 
 [![pages](https://img.shields.io/badge/live-baditaflorin.github.io%2Fmesh-tug-of-war-ff8800)](https://baditaflorin.github.io/mesh-tug-of-war/)
-[![version](https://img.shields.io/badge/version-0.1.0-blue)](https://github.com/baditaflorin/mesh-tug-of-war/blob/main/package.json)
+[![version](https://img.shields.io/badge/version-0.1.1-blue)](https://github.com/baditaflorin/mesh-tug-of-war/blob/main/package.json)
 [![license](https://img.shields.io/badge/license-MIT-green)](./LICENSE)
 
 > Two teams tap-spam; rope position = the diff. 30s rounds, confetti for winner.
