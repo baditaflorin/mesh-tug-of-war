@@ -4,7 +4,7 @@
 [![version](https://img.shields.io/badge/version-0.1.1-blue)](https://github.com/baditaflorin/mesh-tug-of-war/blob/main/package.json)
 [![license](https://img.shields.io/badge/license-MIT-green)](./LICENSE)
 
-> Two teams tap-spam; rope position = the diff. 30s rounds, confetti for winner.
+> Two teams tap frantically — the rope moves live on every phone
 
 **Live → https://baditaflorin.github.io/mesh-tug-of-war/**
 
@@ -27,6 +27,30 @@
 A **rootless-computing** peer-to-peer browser app. No backend of its own beyond the self-hosted WebRTC stack listed below. State lives in a Yjs mesh shared by everyone in the same room.
 
 Read the principles → **https://baditaflorin.github.io/rootless-computing/principles.html**
+
+## How to play
+
+A co-located party game — no app store, no accounts. One person opens the link;
+everyone else scans the room QR (⚙ → invite) or opens the same URL on their own
+phone. You're all in one room.
+
+1. **Pick a side.** Tap **🔴 Left** or **🔵 Right** — your name drops into that
+   team's roster on every phone. Hit **⚖︎ Switch / balance** to jump to the
+   smaller team if the sides are lopsided.
+2. **Start.** Anyone taps **▶ Start**. A shared **3 · 2 · 1** countdown runs on
+   every screen at once, then flips to **PULL!**
+3. **Tap like mad.** During the pull, every tap on _your_ phone adds force to
+   _your_ team. The flag 🚩 on the shared rope slides toward whichever side is
+   tapping harder — live, on every phone, because the position is derived from
+   each player's own tap count (no contended shared counter).
+4. **Win.** First team to drag the flag all the way to their end wins. Confetti
+   fires in the winning side's colour, the final tap totals show, and **↻
+   Rematch** starts a fresh match (everyone's taps reset to zero).
+
+Each phone publishes only its _own_ cumulative tap count to the mesh; every
+phone then sums those by team and clamps `(right − left) × K` into the rope
+position, so all screens agree on where the flag sits no matter what order the
+CRDT updates arrive in.
 
 ## Quickstart
 

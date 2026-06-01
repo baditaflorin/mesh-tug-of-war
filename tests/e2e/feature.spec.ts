@@ -7,35 +7,45 @@ const pkg = JSON.parse(readFileSync(new URL("../../package.json", import.meta.ur
 };
 const storagePrefix = pkg.name;
 
-test("red taps shift rope toward red on both peers", async ({ browser, baseURL }) => {
+// The in-app countdown is 3s; wait past it (plus mesh-sync slack) before the
+// TAP button is enabled and the phase is "pull".
+const PULL_WAIT = 3600;
+
+test("right-team taps shift the rope toward right on both peers", async ({ browser, baseURL }) => {
   const { a, b, cleanup } = await openTwoPeers(browser, baseURL ?? "", { storagePrefix });
   try {
-    await a.getByPlaceholder("your name").fill("alice");
-    await b.getByPlaceholder("your name").fill("bob");
+    await a.getByLabel("your name").fill("alice");
+    await b.getByLabel("your name").fill("bob");
     await a.waitForTimeout(500);
-    await a.getByRole("button", { name: "join RED", exact: true }).click();
-    await b.getByRole("button", { name: "join BLUE", exact: true }).click();
-    await a.getByRole("button", { name: "start round", exact: true }).click();
+
+    await a.getByRole("button", { name: "join Left", exact: true }).click();
+    await b.getByRole("button", { name: "join Right", exact: true }).click();
     await a.waitForTimeout(300);
+
+    await a.getByRole("button", { name: "Start", exact: true }).click();
+    await a.waitForTimeout(PULL_WAIT);
+
     for (let i = 0; i < 5; i++) {
-      await a.getByRole("button", { name: "TAP", exact: true }).click();
+      await b.getByRole("button", { name: "TAP", exact: true }).click();
     }
-    await b.waitForTimeout(400);
-    await expect(b.locator(".tow-red-total")).toContainText("5");
-    const pct = await b.locator(".tow-rope").getAttribute("data-rope-pct");
-    if (Number(pct) <= 50) throw new Error("rope should favor red, got " + pct);
+    await a.waitForTimeout(500);
+
+    // A (the other peer) must see B's 5 right-team taps.
+    await expect(a.locator(".tow-right-total")).toContainText("5");
+    const pct = await a.locator(".tow-rope").getAttribute("data-rope-pct");
+    if (Number(pct) <= 50) throw new Error("rope should favor right, got " + pct);
   } finally {
     await cleanup();
   }
 });
 
 /**
- * Load-bearing convergence test. The rope is a *shared tally* — both peers'
- * taps move the same knot in opposite directions. This drives BOTH peers
- * (A pulls for RED, B pulls for BLUE) and asserts that A's screen and B's
- * screen agree on the same red/blue totals AND the same rope offset. A
- * per-peer-local counter (each screen only seeing its own taps) would fail
- * this: A would never see B's BLUE pulls and the two rope positions would
+ * Load-bearing convergence test. The rope is a *derived* value computed on each
+ * peer from EVERY peer's own per-peer tap count partitioned by team. This drives
+ * BOTH peers (A pulls Left, B pulls Right) and asserts that A's screen and B's
+ * screen agree on the same per-team totals AND the same rope offset. A
+ * peer-local-only counter (each screen only seeing its own taps) would fail
+ * this: A would never see B's right pulls and the two rope positions would
  * disagree.
  */
 test("both teams' taps converge to one shared rope offset on both screens", async ({
@@ -44,34 +54,37 @@ test("both teams' taps converge to one shared rope offset on both screens", asyn
 }) => {
   const { a, b, cleanup } = await openTwoPeers(browser, baseURL ?? "", { storagePrefix });
   try {
-    await a.getByPlaceholder("your name").fill("alice");
-    await b.getByPlaceholder("your name").fill("bob");
+    await a.getByLabel("your name").fill("alice");
+    await b.getByLabel("your name").fill("bob");
     await a.waitForTimeout(500);
-    await a.getByRole("button", { name: "join RED", exact: true }).click();
-    await b.getByRole("button", { name: "join BLUE", exact: true }).click();
-    await a.waitForTimeout(300);
-    await a.getByRole("button", { name: "start round", exact: true }).click();
-    await a.waitForTimeout(400);
 
-    // A pulls 7 for RED, B pulls 3 for BLUE — opposite directions on a shared rope.
+    await a.getByRole("button", { name: "join Left", exact: true }).click();
+    await b.getByRole("button", { name: "join Right", exact: true }).click();
+    await a.waitForTimeout(300);
+
+    await a.getByRole("button", { name: "Start", exact: true }).click();
+    await a.waitForTimeout(PULL_WAIT);
+
+    // A pulls 7 for LEFT, B pulls 3 for RIGHT — opposite directions on a shared rope.
     for (let i = 0; i < 7; i++) {
       await a.getByRole("button", { name: "TAP", exact: true }).click();
     }
     for (let i = 0; i < 3; i++) {
       await b.getByRole("button", { name: "TAP", exact: true }).click();
     }
-    await a.waitForTimeout(600);
+    await a.waitForTimeout(700);
 
     // Both screens must see BOTH teams' totals — not just their own.
-    await expect(a.locator(".tow-red-total")).toContainText("7");
-    await expect(a.locator(".tow-blue-total")).toContainText("3");
-    await expect(b.locator(".tow-red-total")).toContainText("7");
-    await expect(b.locator(".tow-blue-total")).toContainText("3");
+    await expect(a.locator(".tow-left-total")).toContainText("7");
+    await expect(a.locator(".tow-right-total")).toContainText("3");
+    await expect(b.locator(".tow-left-total")).toContainText("7");
+    await expect(b.locator(".tow-right-total")).toContainText("3");
 
-    // diff = 7 - 3 = +4 → ropePct = 50 + clamp(4*2) = 58, identical on both peers.
+    // position = (right - left) * K = (3 - 7) * 2 = -8.
+    // pct = ((-8 + 50) / 100) * 100 = 42, identical on both peers.
     const pctA = await a.locator(".tow-rope").getAttribute("data-rope-pct");
     const pctB = await b.locator(".tow-rope").getAttribute("data-rope-pct");
-    expect(pctA).toBe("58");
+    expect(pctA).toBe("42");
     expect(pctB).toBe(pctA);
   } finally {
     await cleanup();

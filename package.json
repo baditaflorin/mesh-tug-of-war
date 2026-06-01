@@ -1,7 +1,7 @@
 {
   "name": "mesh-tug-of-war",
   "version": "0.1.1",
-  "description": "Two teams tap-spam; rope position = the diff. 30s rounds, confetti for winner.",
+  "description": "Two teams tap frantically — the rope moves live on every phone",
   "type": "module",
   "private": false,
   "homepage": "https://baditaflorin.github.io/mesh-tug-of-war/",

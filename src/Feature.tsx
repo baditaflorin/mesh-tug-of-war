@@ -1,29 +1,80 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   ConfettiLayer,
-  Leaderboard,
   useConfetti,
-  useDeadline,
-  useFlashOnChange,
   useNamedPeer,
   usePerPeerValue,
-  usePhase,
-  useTeams,
+  useRoster,
+  useVibration,
   type MeshConfig,
   type YRoom,
 } from "@baditaflorin/mesh-common";
+import { ropePercent, ropePosition, teamTotals, winnerOf, type Team } from "./logic";
 
 type Props = { room: YRoom | null; config: MeshConfig };
-type Tap = { count: number; ts: number };
+type Phase = "lobby" | "countdown" | "pull" | "result";
 
-const ROUND_MS = 30_000;
+// Rope tuning. K is taps→offset gain; MAX is the win threshold (and the
+// half-width of the track). Both peers MUST agree on these so the derived
+// position is identical everywhere — they live in code, never in the mesh.
+const K = 2;
+const MAX = 50;
+// 3-2-1 countdown length before "PULL!".
+const COUNTDOWN_MS = 3000;
+
+const GAME_KEY = "tug:game";
+
+/** Shared game pointer: the match id, the current phase, the PULL start time, and the winner. */
+function useGame(room: YRoom) {
+  const [, rerender] = useState(0);
+  useEffect(() => {
+    const m = room.doc.getMap(GAME_KEY);
+    const cb = () => rerender((n) => n + 1);
+    m.observe(cb);
+    return () => m.unobserve(cb);
+  }, [room]);
+
+  const m = room.doc.getMap(GAME_KEY);
+  const matchId = (m.get("matchId") as number | undefined) ?? 0;
+  const phase = (m.get("phase") as Phase | undefined) ?? "lobby";
+  const startAt = (m.get("startAt") as number | undefined) ?? 0;
+  const winner = (m.get("winner") as Team | undefined) ?? "";
+
+  /** Anyone can kick off a fresh match: bump the id, arm the countdown. */
+  const startMatch = () => {
+    room.doc.transact(() => {
+      m.set("matchId", matchId + 1);
+      m.set("phase", "countdown");
+      m.set("startAt", Date.now() + COUNTDOWN_MS);
+      m.set("winner", "");
+    });
+  };
+
+  /** Countdown elapsed → live tug. Guarded so only the first writer wins on merge. */
+  const beginPull = () => {
+    if ((m.get("phase") as Phase | undefined) !== "countdown") return;
+    m.set("phase", "pull");
+  };
+
+  /** First peer to see the marker cross a threshold records the winner. */
+  const declareWinner = (w: Team) => {
+    if ((m.get("phase") as Phase | undefined) !== "pull") return;
+    room.doc.transact(() => {
+      m.set("phase", "result");
+      m.set("winner", w);
+    });
+  };
+
+  // Rematch is just a fresh start: bumping matchId resets every peer's taps.
+  return { matchId, phase, startAt, winner, startMatch, beginPull, declareWinner };
+}
 
 export function Feature({ room, config }: Props) {
   if (!room) {
     return (
       <div className="tow-screen">
-        <h1>tug of war</h1>
-        <p className="tow-status">Connecting…</p>
+        <h1 className="tow-title">🪢 {config.appName}</h1>
+        <p className="tow-status">Connecting to the room…</p>
       </div>
     );
   }
@@ -31,171 +82,243 @@ export function Feature({ room, config }: Props) {
 }
 
 function Body({ room, config }: { room: YRoom; config: MeshConfig }) {
-  const { name, setName, nameOf } = useNamedPeer(config, room);
-  const teams = useTeams(room, { teams: ["red", "blue"], mode: "manual" });
-  const taps = usePerPeerValue<Tap>(room, "taps", { count: 0, ts: 0 });
-  const phase = usePhase<"lobby" | "round" | "done">(room, "phase", "lobby");
-  const roundMap = useMemo(() => room.doc.getMap<number>("round"), [room]);
-  const [, rerenderRound] = useState(0);
-  useEffect(() => {
-    const cb = () => rerenderRound((n) => n + 1);
-    roundMap.observe(cb);
-    return () => roundMap.unobserve(cb);
-  }, [roundMap]);
-
-  const start = roundMap.get("start") ?? 0;
-  const roundN = roundMap.get("n") ?? 0;
-  const deadline = useDeadline(start ? start + ROUND_MS : null);
+  const { name, setName, nameOf, myName } = useNamedPeer(config, room);
+  const roster = useRoster(room);
+  const game = useGame(room);
+  const team = usePerPeerValue<Team>(room, "tug:team", "");
+  const taps = usePerPeerValue<number>(room, `tug:taps:${game.matchId}`, 0);
   const { burst } = useConfetti();
-  const redMembers = useMemo(() => new Set(teams.membersOf("red")), [teams]);
-  const blueMembers = useMemo(() => new Set(teams.membersOf("blue")), [teams]);
-  const teamOf = (peerId: string): "red" | "blue" | null =>
-    redMembers.has(peerId) ? "red" : blueMembers.has(peerId) ? "blue" : null;
+  const vib = useVibration();
 
-  let red = 0;
-  let blue = 0;
-  for (const [peerId, tk] of taps.entries) {
-    const t = teamOf(peerId);
-    if (t === "red") red += tk.count;
-    else if (t === "blue") blue += tk.count;
-  }
-  const diff = red - blue;
-  const ropePct = 50 + Math.max(-50, Math.min(50, diff * 2));
-  const flashing = useFlashOnChange(Math.round(ropePct));
-
-  const endedRef = useRef(0);
+  // Tick once a second during the countdown so 3→2→1 updates locally.
+  const [, tick] = useState(0);
   useEffect(() => {
-    if (phase.phase !== "round" || !start || !deadline.isPast) return;
-    if (endedRef.current === roundN) return;
-    endedRef.current = roundN;
-    if (phase.transition("done", { from: "round" })) {
-      const winnerHue: [number, number] = red >= blue ? [0, 30] : [200, 240];
-      burst({ origin: "center", count: 120, hueRange: winnerHue, ttlMs: 2400 });
-    }
-  }, [phase, deadline.isPast, start, roundN, red, blue, burst]);
+    if (game.phase !== "countdown") return;
+    const id = setInterval(() => tick((n) => n + 1), 200);
+    return () => clearInterval(id);
+  }, [game.phase]);
 
-  const joinTeam = (t: "red" | "blue") => {
-    if (phase.phase === "round") return;
-    teams.switchTo(t);
+  // teamOf for the pure totals helper, backed by the shared per-peer team map.
+  const teamOf = (peerId: string): Team => (team.all[peerId] as Team | undefined) ?? "";
+  const { left, right } = teamTotals(taps.entries, teamOf);
+  const position = ropePosition(left, right, K, MAX);
+  const pct = ropePercent(position, MAX);
+
+  // Countdown → pull: the first peer past startAt flips the shared phase.
+  useEffect(() => {
+    if (game.phase !== "countdown") return;
+    const remaining = game.startAt - Date.now();
+    if (remaining <= 0) {
+      game.beginPull();
+      return;
+    }
+    const id = setTimeout(() => game.beginPull(), remaining);
+    return () => clearTimeout(id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [game.phase, game.startAt, game.matchId]);
+
+  // Win detection: derive from the shared position, first observer records it.
+  useEffect(() => {
+    if (game.phase !== "pull") return;
+    const w = winnerOf(position, MAX);
+    if (w) game.declareWinner(w);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [game.phase, position]);
+
+  // Confetti once when a result lands, themed to the winning side.
+  const celebratedRef = useRef(-1);
+  useEffect(() => {
+    if (game.phase !== "result" || !game.winner) return;
+    if (celebratedRef.current === game.matchId) return;
+    celebratedRef.current = game.matchId;
+    const hueRange: [number, number] = game.winner === "R" ? [205, 235] : [0, 20];
+    burst({ origin: "center", count: 120, hueRange, ttlMs: 2400 });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [game.phase, game.winner, game.matchId]);
+
+  const myTeam = team.my;
+  const trimmed = name.trim();
+
+  const present = roster.present.length ? roster.present : [room.peerId];
+  const nameFor = (id: string) =>
+    nameOf(id) ?? (id === room.peerId ? myName : `peer-${id.slice(0, 4)}`);
+  const leftRoster = present.filter((id) => teamOf(id) === "L");
+  const rightRoster = present.filter((id) => teamOf(id) === "R");
+
+  const pickTeam = (t: Team) => {
+    if (game.phase === "pull" || game.phase === "countdown") return;
+    team.setMy(t);
   };
 
-  const startRound = () => {
-    if (phase.phase === "round") return;
-    room.doc.transact(() => {
-      const m = room.doc.getMap<Tap>("taps");
-      m.forEach((_v, k) => m.set(k, { count: 0, ts: 0 }));
-      roundMap.set("start", Date.now());
-      roundMap.set("n", roundN + 1);
-    });
-    phase.transition("round", { from: ["lobby", "done"] });
+  /** Send me to whichever team currently has fewer present players. */
+  const autoBalance = () => {
+    if (game.phase === "pull" || game.phase === "countdown") return;
+    team.setMy(leftRoster.length <= rightRoster.length ? "L" : "R");
   };
 
   const tap = () => {
-    if (phase.phase !== "round" || !teams.myTeam) return;
-    taps.setMy({ count: (taps.my?.count ?? 0) + 1, ts: Date.now() });
+    if (game.phase !== "pull" || (myTeam !== "L" && myTeam !== "R")) return;
+    taps.setMy((taps.my ?? 0) + 1);
+    vib.vibrate(20);
   };
 
-  const trimmed = name.trim();
-  const present = room.peerCount + 1;
-  const items = taps.entries
-    .map(([id, tk]) => ({
-      id,
-      name: nameOf(id) ?? `peer-${id.slice(0, 6)}`,
-      score: tk.count,
-      sub: teamOf(id) ?? "—",
-      isMe: id === room.peerId,
-    }))
-    .sort((a, b) => b.score - a.score);
-
-  const winner = phase.phase === "done" ? (red > blue ? "RED" : blue > red ? "BLUE" : "TIE") : null;
-  const tickPct = deadline.remainingMs > 0 ? (deadline.remainingMs / ROUND_MS) * 100 : 0;
+  const countdownNum = Math.max(1, Math.ceil((game.startAt - Date.now()) / 1000));
+  const canStart = game.phase === "lobby" || game.phase === "result";
+  const winnerLabel =
+    game.winner === "R"
+      ? "🔵 Right team WINS!"
+      : game.winner === "L"
+        ? "🔴 Left team WINS!"
+        : "Draw!";
 
   return (
-    <div className="tow-screen">
+    <div className="tow-screen" data-phase={game.phase}>
       <ConfettiLayer />
+
       <header className="tow-header">
-        <h1>tug of war</h1>
+        <h1 className="tow-title">🪢 tug-of-war</h1>
         <p className="tow-status">
-          round {roundN} · {present} peer{present === 1 ? "" : "s"} · {phase.phase}
+          {present.length} phone{present.length === 1 ? "" : "s"} · {game.phase}
+          {game.matchId > 0 ? ` · match ${game.matchId}` : ""}
         </p>
       </header>
 
-      <input
-        className="tow-name"
-        value={name}
-        onChange={(e) => setName(e.target.value)}
-        placeholder="your name"
-        maxLength={48}
-        aria-label="your name"
-      />
+      {!trimmed && (
+        <label className="tow-name">
+          Your name
+          <input
+            type="text"
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            placeholder="e.g. Alex"
+            maxLength={24}
+            aria-label="your name"
+          />
+        </label>
+      )}
 
-      <div className="tow-teams" role="group" aria-label="pick team">
-        {(["red", "blue"] as const).map((t) => (
+      {/* ---- Team pickers + live rosters ---- */}
+      <div className="tow-teams" role="group" aria-label="pick a team">
+        <div className="tow-team-col" data-team="L">
           <button
-            key={t}
             type="button"
-            className={`tow-team ${teams.myTeam === t ? "is-mine" : ""}`}
-            data-team={t}
-            onClick={() => joinTeam(t)}
-            disabled={!trimmed || phase.phase === "round"}
-            aria-label={`join ${t.toUpperCase()}`}
+            className={`tow-team tow-team-left ${myTeam === "L" ? "is-mine" : ""}`}
+            data-team="L"
+            onClick={() => pickTeam("L")}
+            disabled={!trimmed || game.phase === "countdown" || game.phase === "pull"}
+            aria-label="join Left"
           >
-            join {t.toUpperCase()}
+            🔴 Left
           </button>
-        ))}
+          <span className="tow-team-total tow-left-total" data-team="L">
+            {left}
+          </span>
+          <ul className="tow-roster">
+            {leftRoster.map((id) => (
+              <li key={id} className={id === room.peerId ? "is-me" : ""}>
+                {nameFor(id)}
+              </li>
+            ))}
+          </ul>
+        </div>
+
+        <div className="tow-team-col" data-team="R">
+          <button
+            type="button"
+            className={`tow-team tow-team-right ${myTeam === "R" ? "is-mine" : ""}`}
+            data-team="R"
+            onClick={() => pickTeam("R")}
+            disabled={!trimmed || game.phase === "countdown" || game.phase === "pull"}
+            aria-label="join Right"
+          >
+            🔵 Right
+          </button>
+          <span className="tow-team-total tow-right-total" data-team="R">
+            {right}
+          </span>
+          <ul className="tow-roster">
+            {rightRoster.map((id) => (
+              <li key={id} className={id === room.peerId ? "is-me" : ""}>
+                {nameFor(id)}
+              </li>
+            ))}
+          </ul>
+        </div>
       </div>
 
-      <div
-        className={`tow-rope ${flashing ? "is-flash" : ""}`}
-        data-rope-pct={ropePct}
-        style={{ opacity: 0.55 + Math.min(0.45, Math.abs(diff) / 40) }}
-      >
-        <span className="tow-rope-axis" aria-hidden="true" />
-        <span className="tow-rope-knot" style={{ left: `${ropePct}%` }} aria-hidden="true" />
-      </div>
-
-      <div className="tow-totals">
-        <span className="tow-red-total" data-team="red">
-          {red}
-        </span>
-        <span className="tow-vs">vs</span>
-        <span className="tow-blue-total" data-team="blue">
-          {blue}
-        </span>
-      </div>
-
-      <button
-        type="button"
-        className="tow-tap"
-        onClick={tap}
-        disabled={phase.phase !== "round" || !teams.myTeam}
-        aria-label="TAP"
-      >
-        TAP
-      </button>
-
-      {phase.phase !== "round" && (
+      {canStart && (
         <button
           type="button"
-          className="tow-start"
-          onClick={startRound}
+          className="tow-switch"
+          onClick={autoBalance}
           disabled={!trimmed}
-          aria-label="start round"
+          aria-label="auto-balance team"
         >
-          start round
+          ⚖︎ {myTeam ? "Switch / balance team" : "Auto-pick a team"}
         </button>
       )}
 
-      {phase.phase === "round" && (
-        <div className="tow-countdown" aria-label="time remaining">
-          <span className="tow-countdown-bar" style={{ width: `${tickPct}%` }} />
-          <span className="tow-countdown-label">{deadline.fmt}</span>
+      {/* ---- The rope / track with a live centre flag ---- */}
+      <div
+        className={`tow-rope ${game.phase === "pull" ? "is-live" : ""}`}
+        data-rope-pct={Math.round(pct)}
+        data-position={position}
+        aria-label="rope position"
+      >
+        <span className="tow-rope-zone tow-rope-zone-left" aria-hidden="true" />
+        <span className="tow-rope-center" aria-hidden="true" />
+        <span className="tow-rope-zone tow-rope-zone-right" aria-hidden="true" />
+        <span
+          className="tow-rope-flag"
+          style={{ left: `${pct}%` }}
+          data-team={position < 0 ? "L" : position > 0 ? "R" : ""}
+          aria-hidden="true"
+        >
+          🚩
+        </span>
+      </div>
+
+      {/* ---- Phase-specific main area ---- */}
+      {game.phase === "countdown" && (
+        <div className="tow-countdown" aria-label="countdown">
+          <span className="tow-countdown-num">{countdownNum}</span>
+          <span className="tow-countdown-hint">get ready…</span>
         </div>
       )}
 
-      {winner && <p className="tow-winner">{winner === "TIE" ? "tie!" : `${winner} wins!`}</p>}
+      {game.phase === "pull" && (
+        <button
+          type="button"
+          className="tow-tap"
+          onClick={tap}
+          disabled={myTeam !== "L" && myTeam !== "R"}
+          aria-label="TAP"
+        >
+          {myTeam ? "TAP! TAP! TAP!" : "pick a team to pull"}
+        </button>
+      )}
 
-      <Leaderboard items={items} highlightId={room.peerId} title="taps" />
+      {game.phase === "result" && (
+        <div className="tow-result">
+          <h2 className="tow-winner">{winnerLabel}</h2>
+          <p className="tow-final">
+            🔴 {left} &nbsp;·&nbsp; {right} 🔵
+          </p>
+        </div>
+      )}
+
+      {/* ---- Start / rematch ---- */}
+      {canStart && (
+        <button
+          type="button"
+          className="tow-start"
+          onClick={game.startMatch}
+          disabled={!trimmed}
+          aria-label={game.phase === "result" ? "Rematch" : "Start"}
+        >
+          {game.phase === "result" ? "↻ Rematch" : "▶ Start"}
+        </button>
+      )}
     </div>
   );
 }
