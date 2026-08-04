@@ -145,8 +145,17 @@ function Body({ room, config }: { room: YRoom; config: MeshConfig }) {
   const leftRoster = present.filter((id) => teamOf(id) === "L");
   const rightRoster = present.filter((id) => teamOf(id) === "R");
 
+  // Once a match is live (countdown/pull), a peer who already committed to a
+  // side can't switch — that would let mid-pull sabotage swaps happen. But a
+  // peer with NO team yet (e.g. their tab just reloaded mid-match, which
+  // hands them a brand-new peerId per useYRoom and so wipes their `team.my`)
+  // must still be able to join a side; otherwise a refresh permanently benches
+  // them as a spectator for the rest of the match with no way back in.
+  const teamLockedThisMatch =
+    (game.phase === "pull" || game.phase === "countdown") && myTeam !== "";
+
   const pickTeam = (t: Team) => {
-    if (game.phase === "pull" || game.phase === "countdown") return;
+    if (teamLockedThisMatch) return;
     team.setMy(t);
   };
 
@@ -205,7 +214,7 @@ function Body({ room, config }: { room: YRoom; config: MeshConfig }) {
             className={`tow-team tow-team-left ${myTeam === "L" ? "is-mine" : ""}`}
             data-team="L"
             onClick={() => pickTeam("L")}
-            disabled={!trimmed || game.phase === "countdown" || game.phase === "pull"}
+            disabled={!trimmed || teamLockedThisMatch}
             aria-label="join Left"
           >
             🔴 Left
@@ -228,7 +237,7 @@ function Body({ room, config }: { room: YRoom; config: MeshConfig }) {
             className={`tow-team tow-team-right ${myTeam === "R" ? "is-mine" : ""}`}
             data-team="R"
             onClick={() => pickTeam("R")}
-            disabled={!trimmed || game.phase === "countdown" || game.phase === "pull"}
+            disabled={!trimmed || teamLockedThisMatch}
             aria-label="join Right"
           >
             🔵 Right

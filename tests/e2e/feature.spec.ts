@@ -90,3 +90,54 @@ test("both teams' taps converge to one shared rope offset on both screens", asyn
     await cleanup();
   }
 });
+
+/**
+ * Regression test for a page-refresh-mid-pull lockout: useYRoom hands out a
+ * brand-new peerId on every load (it's the Yjs awareness clientID, not
+ * persisted), so a peer whose tab reloads mid-match loses their `team.my`
+ * entry. Team-switch buttons used to be unconditionally disabled for the
+ * whole "countdown"/"pull" phase, which meant a reloaded peer had NO way to
+ * rejoin a side and was benched as a spectator for the rest of the match.
+ * They should still be able to join a team (but not switch sides if they
+ * already picked one — that stays locked to prevent mid-pull sabotage).
+ */
+test("a peer who reloads mid-pull can rejoin their team instead of being benched", async ({
+  browser,
+  baseURL,
+}) => {
+  const { a, b, cleanup } = await openTwoPeers(browser, baseURL ?? "", { storagePrefix });
+  try {
+    await a.getByLabel("your name").fill("alice");
+    await b.getByLabel("your name").fill("bob");
+    await a.waitForTimeout(500);
+
+    await a.getByRole("button", { name: "join Left", exact: true }).click();
+    await b.getByRole("button", { name: "join Right", exact: true }).click();
+    await a.waitForTimeout(300);
+
+    await a.getByRole("button", { name: "Start", exact: true }).click();
+    await a.waitForTimeout(PULL_WAIT);
+
+    // Bob's phone reloads mid-pull (flaky wifi / OS kills the tab / accidental
+    // pull-to-refresh) — he gets a fresh peerId and loses his team.
+    await b.reload();
+    await b.waitForTimeout(500);
+
+    // He must still be able to rejoin Right and keep tapping for his team —
+    // not get stuck forever on "pick a team to pull" with dead buttons.
+    await expect(b.getByRole("button", { name: "join Right", exact: true })).toBeEnabled();
+    await b.getByRole("button", { name: "join Right", exact: true }).click();
+    await expect(b.getByRole("button", { name: "TAP", exact: true })).toBeEnabled();
+    await b.getByRole("button", { name: "TAP", exact: true }).click();
+    await b.getByRole("button", { name: "TAP", exact: true }).click();
+
+    await a.waitForTimeout(500);
+    await expect(a.locator(".tow-right-total")).toContainText("2");
+
+    // Once rejoined mid-pull, Bob can't defect back to Left (still locked
+    // while the match is live) — only fresh/teamless peers get the exemption.
+    await expect(b.getByRole("button", { name: "join Left", exact: true })).toBeDisabled();
+  } finally {
+    await cleanup();
+  }
+});
