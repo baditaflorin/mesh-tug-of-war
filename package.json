@@ -25,7 +25,7 @@
     "vitest": "4.1.0"
   },
   "engines": {
-    "node": "\u003e=22"
+    "node": ">=22"
   },
   "homepage": "https://baditaflorin.github.io/mesh-tug-of-war/",
   "license": "MIT",
@@ -45,7 +45,7 @@
     "fmt": "prettier --write .",
     "fmt:check": "prettier --check .",
     "typecheck": "tsc --noEmit -p tsconfig.app.json",
-    "test": "npm run test:unit \u0026\u0026 npm run test:e2e",
+    "test": "npm run test:unit && npm run test:e2e",
     "test:unit": "vitest run",
     "test:unit:watch": "vitest",
     "test:e2e": "playwright test",
@@ -53,7 +53,8 @@
     "test:e2e:install": "playwright install chromium",
     "screenshot": "bash ../mesh-common/scripts/screenshot-app.sh",
     "demo": "bash ../mesh-common/scripts/record-demo.sh",
-    "audit:security": "bash ../mesh-common/scripts/audit-app-security.sh"
+    "audit:security": "bash ../mesh-common/scripts/audit-app-security.sh",
+    "test:leak": "MESH_RUN_LEAK_TEST=1 playwright test tests/e2e/memory-leak.spec.ts"
   },
   "type": "module",
   "version": "0.1.1"
